@@ -6,14 +6,31 @@ SPRITEPTR	= SPRITE >> 6
 
 POT_X		= $d419
 POT_Y		= $d41a
-OPOT_X		= $fb
-OPOT_Y		= $fc
-OLDVAL		= $fd
-NEWVAL		= $fe
-TMP1		= $02
+
+OP_DECZP	= $c6
+OP_INCZP	= $e6
+
+opot_x		= $fb
+opot_y		= $fc
+oldval		= $fd
+newval		= $fe
+redraw_x	= $fd
+redraw_y	= $fe
+mouse_x		= $69
+mouse_y		= $6a
+mouse_ox	= $6b
+mouse_oy	= $6c
+button		= $6d
+eye1_x		= $5c
+eye2_x		= $5d
+eyes_y		= $5e
+tmp1		= $5f
+tmp2		= $02
 
 .code
 		jsr	$e544
+		lda	#$ff
+		sta	eyes_y
 		ldx	#$3f
 		lda	#0
 		sta	$d010
@@ -49,11 +66,11 @@ spcpy:		lda	spriteblocks,y
 		bne	*
 
 checkmove:
-		sty	OLDVAL
-		sta	NEWVAL
+		sty	oldval
+		sta	newval
 		tay
 		sec
-		sbc	OLDVAL
+		sbc	oldval
 		and	#$7f
 		cmp	#$40
 		bcs	negativemove
@@ -106,7 +123,7 @@ draw_ydownok:	sta	redraw_y
 framelinel:	ldx	redraw_y
 		jsr	$e9f0
 		lda	#$2
-		sta	TMP1
+		sta	tmp1
 		ldy	redraw_x
 frameloopo:	ldx	#$0
 framesrc	= *+1
@@ -117,7 +134,7 @@ frameloopi:	lda	$ffff,x
 		cpx	#$5
 		bne	frameloopi
 		iny
-		dec	TMP1
+		dec	tmp1
 		bne	frameloopo
 		inc	redraw_y
 		lda	#<frame2
@@ -134,17 +151,81 @@ frameloopi:	lda	$ffff,x
 		bne	framelinel
 rdrwdone:	rts
 
+draweye:
+		cmp	mouse_x
+		bcc	righthalf
+		beq	xcenter
+		sbc	mouse_x
+		sta	tmp1
+		lda	#OP_DECZP
+		bne	lefthalf
+righthalf:	eor	#$ff
+		sec
+		adc	mouse_x
+		sta	tmp1
+		lda	#OP_INCZP
+lefthalf:	sta	ddownleft
+		sta	dleft
+		sta	dupleft
+		lda	mouse_y
+		cmp	eyes_y
+		bcc	cupleft
+		beq	dleft
+		sbc	eyes_y
+		cmp	tmp1
+		bcc	cdownleftl
+		lsr	a
+		cmp	tmp1
+		bcs	ddown
+ddownleft:	dec	redraw_x
+ddown:		ldx	eyes_y
+		inx
+		bne	dodraw
+dleft:		dec	redraw_x
+dcenter:	ldx	eyes_y
+		bne	dodraw
+cdownleftl:	asl	a
+		cmp	tmp1
+		bcs	ddownleft
+		bcc	dleft
+cupleft:	eor	#$ff
+		sec
+		adc	eyes_y
+		cmp	tmp1
+		bcc	cupleftl
+		lsr	a
+		cmp	tmp1
+		bcs	dup
+dupleft:	dec	redraw_x
+dup:		ldx	eyes_y
+		dex
+		bne	dodraw
+cupleftl:	asl	a
+		cmp	tmp1
+		bcs	dupleft
+		bcc	dleft
+xcenter:	lda	mouse_y
+		cmp	eyes_y
+		bcc	dup
+		beq	dcenter
+		bcs	ddown
+dodraw:		jsr	$e9f0
+		lda	#$30
+		ldy	redraw_x
+		sta	($d1),y
+		rts	
+
 isr:
 		lda	POT_X
-		ldy	OPOT_X
+		ldy	opot_x
 		jsr	checkmove
-		sty	OPOT_X
-		sta	TMP1
+		sty	opot_x
+		sta	tmp1
 		clc
 		adc	$d000
 		sta	$d000
 		ror	a
-		eor	TMP1
+		eor	tmp1
 		bpl	skiphbtoggle
 		lda	#$01
 		eor	$d010
@@ -159,25 +240,25 @@ setleft:	lda	#$18
 		bne	xsecondstore
 checkright:	cmp	#$58
 		bcc	doy
-		bit	TMP1
+		bit	tmp1
 		bpl	setright
 		dec	$d010
 		bcs	setleft
 setright:	lda	#$57
 xsecondstore:	sta	$d000
 doy:		lda	POT_Y
-		ldy	OPOT_Y
+		ldy	opot_y
 		jsr	checkmove
-		sty	OPOT_Y
+		sty	opot_y
 		eor	#$ff
-		sta	TMP1
+		sta	tmp1
 		sec
 		adc	$d001
 		sta	$d001
 		ror	a
-		eor	TMP1
+		eor	tmp1
 		bpl	noywrap
-		bit	TMP1
+		bit	tmp1
 		bpl	setupper
 		bmi	setlower
 noywrap:	lda	$d001
@@ -218,7 +299,9 @@ checkclick:	lda	$dc01
 		bne	checkeyes
 		jsr	redraw
 		bmi	doeyes
-checkeyes:	lda	mouse_x
+checkeyes:	lda	eyes_y
+		bmi	isrout
+		lda	mouse_x
 		cmp	mouse_ox
 		bne	doeyes
 		lda	mouse_y
@@ -226,10 +309,10 @@ checkeyes:	lda	mouse_x
 		beq	isrout
 doeyes:		ldx	eyes_y
 		dex
-		stx	TMP1
+		stx	tmp1
 		lda	#$3
 		sta	tmp2
-eyeclrloop:	ldx	TMP1
+eyeclrloop:	ldx	tmp1
 		jsr	$e9f0
 		lda	#$20
 		ldx	#$3
@@ -246,10 +329,15 @@ eyeclrrow2:	sta	($d1),y
 		iny
 		dex
 		bne	eyeclrrow2
-		inc	TMP1
+		inc	tmp1
 		dec	tmp2
 		bne	eyeclrloop
-
+		lda	eye1_x
+		sta	redraw_x
+		jsr	draweye
+		lda	eye2_x
+		sta	redraw_x
+		jsr	draweye
 isrout:		jmp	$ea31
 
 .data
@@ -263,16 +351,3 @@ frame1:		.byte	".---."
 frame2:		.byte	$5d, "   ", $5d
 frame3:		.byte	"'---'"
 
-.bss
-
-mouse_x:	.res	1
-mouse_y:	.res	1
-mouse_ox:	.res	1
-mouse_oy:	.res	1
-button:		.res	1
-eye1_x:		.res	1
-eye2_x:		.res	1
-eyes_y:		.res	1
-redraw_x:	.res	1
-redraw_y:	.res	1
-tmp2:		.res	1
